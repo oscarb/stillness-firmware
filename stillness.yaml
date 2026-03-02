@@ -1,0 +1,95 @@
+substitutions:
+  server_url: "http://192.168.1.100:3000/image"
+  api_key: "aBc9876543210xyzqrstuvwxyzabcdefghijkl="
+  ota_password: "strong-unique-password-device"
+  wifi_ssid: "YourWiFiSSID"
+  wifi_password: "YourWiFiPassword"
+  wifi_fallback_ssid: "Stillness Fallback Hotspot"
+  wifi_fallback_password: "roIgQXxw5yRQ"
+
+
+esphome:
+  name: stillness
+  friendly_name: Stillness
+  on_boot:
+    priority: -100
+    then:
+      - logger.log: "Triggering display update at boot"
+      - component.update: my_online_image  
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf 
+
+# Enable logging
+logger:
+
+# Nake requests
+http_request:
+  verify_ssl: false
+
+# Enable PSRAM support since online_image requires more than the available RAM capacity
+psram:
+  mode: octal
+  speed: 80MHz  
+
+# Display image
+online_image:
+  - url: ${server_url}
+    type: BINARY
+    format: png
+    id: my_online_image
+    update_interval: 120s
+    on_download_finished:
+      component.update: eink_display
+    on_error:
+      - logger.log: "Could not download the image"
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ${api_key}
+
+ota:
+  - platform: esphome
+    password: ${ota_password}
+
+wifi:
+  ssid: "${wifi_ssid}"
+  password: "${wifi_password}"
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${wifi_fallback_ssid}"
+    password: "${wifi_fallback_password}"
+
+captive_portal:
+
+# define font to display words
+font:
+  - file: "gfonts://Inter@700"
+    id: font1
+    size: 24
+
+# define SPI interface
+spi:
+  clk_pin: GPIO7
+  mosi_pin: GPIO9
+
+display:
+  - platform: waveshare_epaper
+    id: eink_display
+    model: 7.50inv2
+    cs_pin: GPIO44
+    dc_pin: GPIO10
+    reset_pin: GPIO38
+    busy_pin: 
+      number: GPIO4
+      inverted: true
+    update_interval: never
+    lambda: |-
+      it.clear();
+      it.image(0, 0, id(my_online_image), COLOR_OFF, COLOR_ON); // online_image    
+      //it.print(0, 0, id(font1), "Hello World!");
+    
