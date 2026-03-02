@@ -5,8 +5,7 @@ substitutions:
   wifi_ssid: "YourWiFiSSID"
   wifi_password: "YourWiFiPassword"
   wifi_fallback_ssid: "Stillness Fallback Hotspot"
-  wifi_fallback_password: "roIgQXxw5yRQ"
-
+  wifi_fallback_password: "abcdef123456"
 
 esphome:
   name: stillness
@@ -15,7 +14,10 @@ esphome:
     priority: -100
     then:
       - logger.log: "Triggering display update at boot"
-      - component.update: my_online_image  
+      - component.update: my_online_image
+  project:
+    name: "oscarb.stillness"
+    version: "1.0.0"
 
 esp32:
   board: seeed_xiao_esp32s3
