@@ -1,11 +1,11 @@
 substitutions:
-  server_url: "http://192.168.1.100:3000/image"
-  api_key: "aBc9876543210xyzqrstuvwxyzabcdefghijkl="
-  ota_password: "strong-unique-password-device"
-  wifi_ssid: "YourWiFiSSID"
-  wifi_password: "YourWiFiPassword"
-  wifi_fallback_ssid: "Stillness Fallback Hotspot"
-  wifi_fallback_password: "abcdef123456"
+  server_url: !secret stillness_server_url
+  api_key: !secret stillness_api_key
+  ota_password: !secret stillness_ota_password
+  wifi_ssid: !secret wifi_ssid
+  wifi_password: !secret wifi_password
+  wifi_fallback_ssid: !secret stillness_wifi_fallback_ssid
+  wifi_fallback_password: !secret stillness_wifi_fallback_password
 
 esphome:
   name: stillness
@@ -51,7 +51,7 @@ online_image:
 # Enable Home Assistant API
 api:
   encryption:
-    key: ${api_key}
+    key: "${api_key}"
 
 ota:
   - platform: esphome
