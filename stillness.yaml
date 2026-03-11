@@ -11,8 +11,12 @@ esphome:
   name: stillness
   friendly_name: Stillness
   on_boot:
-    priority: -100
     then:
+      - output.turn_on: battery_measure_en
+      - delay: 200ms
+      - component.update: battery_voltage
+      - component.update: battery_level
+      - output.turn_off: battery_measure_en
       - logger.log: "Triggering display update at boot"
       - component.update: my_online_image
   project:
@@ -78,6 +82,49 @@ font:
 spi:
   clk_pin: GPIO7
   mosi_pin: GPIO9
+
+# Battery levels
+output:
+  - platform: gpio
+    pin: GPIO6
+    id: battery_measure_en
+
+sensor:
+  - platform: adc
+    pin: GPIO1
+    name: "Battery voltage"
+    id: battery_voltage
+    update_interval: never
+    unit_of_measurement: "V"
+    attenuation: 12db
+    filters:
+      - multiply: 2.0 # The hardware uses a 1/2 voltage divider
+      #- offset: 0.00  # Optional: Calibration offset if your reading is slightly off  
+
+  - platform: template
+    name: "Battery level"
+    id: battery_level
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    lambda: 'return id(battery_voltage).state;'
+    filters:
+      - calibrate_linear:
+          - 4.15 -> 100.0
+          - 3.96 -> 90.0
+          - 3.91 -> 80.0
+          - 3.85 -> 70.0
+          - 3.80 -> 60.0
+          - 3.75 -> 50.0
+          - 3.68 -> 40.0
+          - 3.58 -> 30.0
+          - 3.49 -> 20.0
+          - 3.41 -> 10.0
+          - 3.30 -> 5.0
+          - 3.27 -> 0.0
+      - clamp:
+          min_value: 0
+          max_value: 100
 
 display:
   - platform: waveshare_epaper
