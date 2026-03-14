@@ -34,6 +34,7 @@ esphome:
             - wait_until:
                 wifi.connected:
                 # TODO Add timout to prevent infinite waiting
+            - component.update: wifi_signal_db
             - component.update: my_online_image
 
   project:
@@ -103,6 +104,12 @@ output:
     id: battery_measure_en
 
 sensor:
+  - platform: wifi_signal
+    name: "Signal strength"
+    id: wifi_signal_db
+    update_interval: never
+    entity_category: "diagnostic"
+
   - platform: adc
     pin: GPIO1
     name: "Battery voltage"
