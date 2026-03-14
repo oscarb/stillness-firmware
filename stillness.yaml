@@ -6,19 +6,36 @@ substitutions:
   wifi_password: !secret wifi_password
   wifi_fallback_ssid: !secret stillness_wifi_fallback_ssid
   wifi_fallback_password: !secret stillness_wifi_fallback_password
+  battery_low_threshold: "15.0"
 
 esphome:
   name: stillness
   friendly_name: Stillness
   on_boot:
     then:
+      - logger.log: "Booting up..."
       - output.turn_on: battery_measure_en
       - delay: 200ms
       - component.update: battery_voltage
       - component.update: battery_level
       - output.turn_off: battery_measure_en
-      - logger.log: "Triggering display update at boot"
-      - component.update: my_online_image
+      - logger.log:
+          format: "Battery Check: %.2fV (%.1f%%)"
+          args: [ 'id(battery_voltage).state', 'id(battery_level).state' ]
+      - if: 
+          condition:
+            lambda: 'return id(battery_level).state < ${battery_low_threshold};'
+          then:
+            - logger.log: "Battery level low, showing low battery screen"
+            - display.page.show: low_battery
+            - component.update: eink_display
+          else:
+            - logger.log: "Battery level sufficient, showing photo"
+            - wait_until:
+                wifi.connected:
+                # TODO Add timout to prevent infinite waiting
+            - component.update: my_online_image
+
   project:
     name: "oscarb.stillness"
     version: "1.0.0"
@@ -46,9 +63,10 @@ online_image:
     type: BINARY
     format: png
     id: my_online_image
-    update_interval: 120s
+    update_interval: never
     on_download_finished:
-      component.update: eink_display
+      - display.page.show: photo
+      - component.update: eink_display
     on_error:
       - logger.log: "Could not download the image"
 
@@ -64,6 +82,7 @@ ota:
 wifi:
   ssid: "${wifi_ssid}"
   password: "${wifi_password}"
+  fast_connect: true
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
@@ -71,12 +90,6 @@ wifi:
     password: "${wifi_fallback_password}"
 
 captive_portal:
-
-# define font to display words
-font:
-  - file: "gfonts://Inter@700"
-    id: font1
-    size: 24
 
 # define SPI interface
 spi:
@@ -105,6 +118,7 @@ sensor:
     name: "Battery level"
     id: battery_level
     unit_of_measurement: "%"
+    update_interval: never  
     device_class: battery
     state_class: measurement
     lambda: 'return id(battery_voltage).state;'
@@ -126,6 +140,13 @@ sensor:
           min_value: 0
           max_value: 100
 
+# Low Battery icon
+image:
+  - file: memory:battery-25
+    id: low_battery_icon
+    type: binary
+    resize: 200x200
+
 display:
   - platform: waveshare_epaper
     id: eink_display
@@ -137,8 +158,12 @@ display:
       number: GPIO4
       inverted: true
     update_interval: never
-    lambda: |-
-      it.clear();
-      it.image(0, 0, id(my_online_image), COLOR_OFF, COLOR_ON); // online_image    
-      //it.print(0, 0, id(font1), "Hello World!");
-    
+    pages:
+      - id: photo
+        lambda: |-
+          it.clear();
+          it.image(0, 0, id(my_online_image), COLOR_OFF, COLOR_ON);
+      - id: low_battery
+        lambda: |-
+          it.clear();
+          it.image(300, 140, id(low_battery_icon));
