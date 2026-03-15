@@ -4,47 +4,97 @@ substitutions:
   ota_password: !secret stillness_ota_password
   wifi_ssid: !secret wifi_ssid
   wifi_password: !secret wifi_password
-  wifi_fallback_ssid: !secret stillness_wifi_fallback_ssid
-  wifi_fallback_password: !secret stillness_wifi_fallback_password
   battery_low_threshold: "15.0"
+  sleep_duration: "6h"
 
 esphome:
+  project:
+    name: "oscarb.stillness"
+    version: "1.0.0"
   name: stillness
   friendly_name: Stillness
   on_boot:
     then:
       - logger.log: "Booting up..."
+      - script.execute: check_battery_level
+      - text_sensor.template.publish:
+          id: last_error
+          state: "None"
+      # Show warning if battery level low
+      - if: 
+          condition:
+            lambda: 'return id(battery_level).state < ${battery_low_threshold};'
+          then:
+            # Battery level low
+            - logger.log: "Battery level low, showing low battery screen"
+            - display.page.show: low_battery
+            - component.update: eink_display
+          else:
+            # Battery level OK
+            - logger.log: "Battery level sufficient, checking boot reason"
+            - logger.log:
+                format: "Wakeup reason code: %d"
+                args: ['esp_sleep_get_wakeup_cause()']
+            - if:
+                # Check if cold boot
+                condition:
+                  lambda: |-
+                    return (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED);
+                then:
+                  # Maintenance mode
+                  - script.execute: maintenance_mode
+            # Normal boot
+            - script.wait: maintenance_mode
+            - logger.log: "Battery level sufficient, showing photo"
+            - script.execute: display_photo
+                     
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf 
+
+script: 
+  - id: check_battery_level
+    then:
       - output.turn_on: battery_measure_en
       - delay: 200ms
       - component.update: battery_voltage
       - component.update: battery_level
       - output.turn_off: battery_measure_en
       - logger.log:
-          format: "Battery Check: %.2fV (%.1f%%)"
-          args: [ 'id(battery_voltage).state', 'id(battery_level).state' ]
-      - if: 
+          format: "Battery check: %.2fV (%.1f%%)"
+          args: [ 'id(battery_voltage).state', 'id(battery_level).state' ]      
+
+  - id: maintenance_mode
+    then:
+      - logger.log: "Entering maintenance mode for 60 seconds"
+      - deep_sleep.prevent: deep_sleep_control
+      - delay: 200ms
+      - display.page.show: maintenance_page
+      - component.update: eink_display
+      - delay: 60s 
+      - deep_sleep.allow: deep_sleep_control
+
+  - id: display_photo
+    then:
+      - wait_until:
           condition:
-            lambda: 'return id(battery_level).state < ${battery_low_threshold};'
-          then:
-            - logger.log: "Battery level low, showing low battery screen"
-            - display.page.show: low_battery
-            - component.update: eink_display
-          else:
-            - logger.log: "Battery level sufficient, showing photo"
-            - wait_until:
-                wifi.connected:
-                # TODO Add timout to prevent infinite waiting
+            wifi.connected:
+          timeout: 30s
+      - if:
+          condition:
+            wifi.connected:
+          then:                      
             - component.update: wifi_signal_db
             - component.update: my_online_image
-
-  project:
-    name: "oscarb.stillness"
-    version: "1.0.0"
-
-esp32:
-  board: seeed_xiao_esp32s3
-  framework:
-    type: esp-idf 
+          else:
+            - logger.log: "Could not connect to WiFi"
+            - display.page.show: no_network_page
+            - component.update: eink_display
+            - text_sensor.template.publish:
+                id: last_error
+                state: "Error connecting to WiFi network ${wifi_ssid}"   
 
 # Enable logging
 logger:
@@ -58,18 +108,28 @@ psram:
   mode: octal
   speed: 80MHz  
 
+# Triggering deep sleep too quickly can cause safe mode to kick in
+safe_mode:
+  boot_is_good_after: 10s 
+
 # Display image
 online_image:
-  - url: ${server_url}
+  - id: my_online_image
+    url: ${server_url}
     type: BINARY
     format: png
-    id: my_online_image
     update_interval: never
     on_download_finished:
       - display.page.show: photo
       - component.update: eink_display
+      - logger.log: "Image downloaded successfully, going to deep sleep (${sleep_duration})..."
+      - deep_sleep.enter: deep_sleep_control
     on_error:
-      - logger.log: "Could not download the image"
+      - logger.log: "Failed to download image"
+      - text_sensor.template.publish:
+          id: last_error
+          state: "Error downloading image from ${server_url}"
+      - deep_sleep.enter: deep_sleep_control
 
 # Enable Home Assistant API
 api:
@@ -77,22 +137,19 @@ api:
     key: "${api_key}"
 
 ota:
-  - platform: esphome
-    password: ${ota_password}
+  - platform: "esphome"
+    password: "${ota_password}"
+    on_begin:
+      then:
+        - logger.log: "OTA update started, preventing deep sleep..."
+        - deep_sleep.prevent: deep_sleep_control
 
 wifi:
   ssid: "${wifi_ssid}"
   password: "${wifi_password}"
   fast_connect: true
 
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
-  ap:
-    ssid: "${wifi_fallback_ssid}"
-    password: "${wifi_fallback_password}"
-
-captive_portal:
-
-# define SPI interface
+# SPI interface
 spi:
   clk_pin: GPIO7
   mosi_pin: GPIO9
@@ -102,6 +159,63 @@ output:
   - platform: gpio
     pin: GPIO6
     id: battery_measure_en
+
+deep_sleep:
+  id: deep_sleep_control
+  run_duration:
+    default: 2min
+    gpio_wakeup_reason: 2min
+  sleep_duration: "${sleep_duration}"
+  wakeup_pin:
+    number: GPIO2
+    inverted: true
+    mode: INPUT_PULLUP
+
+binary_sensor:
+  # - platform: gpio
+  #   pin:
+  #     number: GPIO2
+  #     mode: INPUT_PULLUP
+  #     inverted: true
+  #   id: key1
+  #   on_press:
+  #     then:
+  #       - logger.log: "Key 1 pressed"
+
+  - platform: gpio
+    pin:
+      number: GPIO3
+      mode: INPUT_PULLUP
+      inverted: true
+    id: key2
+    on_press:
+      then:
+        - logger.log: "Key 2 pressed"
+
+  - platform: gpio
+    pin:
+      number: GPIO5
+      mode: INPUT_PULLUP
+      inverted: true
+    id: key3
+    on_press:
+      then:
+        - logger.log: "Key 3 pressed"
+
+text_sensor:
+  - platform: template
+    name: "Sleep duration"
+    id: sleep_duration
+    icon: "mdi:timer-sand"
+    lambda: 'return {"${sleep_duration}"};'
+    entity_category: "diagnostic"
+
+
+  - platform: template
+    name: "Last error"
+    id: last_error
+    icon: "mdi:alert-circle-outline"
+    entity_category: "diagnostic"
 
 sensor:
   - platform: wifi_signal
@@ -147,16 +261,27 @@ sensor:
           min_value: 0
           max_value: 100
 
-# Low Battery icon
 image:
+  # Low Battery icon
   - file: memory:battery-25
     id: low_battery_icon
     type: binary
     resize: 200x200
+  # Maintenance mode
+  - file: memory:application-code
+    id: maintenance_icon
+    type: binary
+    resize: 200x200
+  # No network
+  - file: memory:alert-box-fill
+    id: no_network_icon
+    type: binary
+    resize: 200x200
 
 display:
-  - platform: waveshare_epaper
+  - platform: waveshare_epaper   
     id: eink_display
+    auto_clear_enabled: true    
     model: 7.50inv2
     cs_pin: GPIO44
     dc_pin: GPIO10
@@ -168,9 +293,14 @@ display:
     pages:
       - id: photo
         lambda: |-
-          it.clear();
           it.image(0, 0, id(my_online_image), COLOR_OFF, COLOR_ON);
       - id: low_battery
         lambda: |-
-          it.clear();
           it.image(300, 140, id(low_battery_icon));
+      - id: maintenance_page
+        lambda: |-
+          it.image(300, 140, id(maintenance_icon));
+      - id: no_network_page
+        lambda: |-
+          it.image(300, 140, id(no_network_icon));
+
