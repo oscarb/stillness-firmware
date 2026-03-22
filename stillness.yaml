@@ -122,7 +122,13 @@ online_image:
     on_download_finished:
       - display.page.show: photo
       - component.update: eink_display
-      - logger.log: "Image downloaded successfully, going to deep sleep (${sleep_duration})..."
+      - logger.log: "Image downloaded successfully, updating sensors..." 
+      - wait_until:
+          condition:
+            api.connected:
+          timeout: 10s
+      - delay: 2s          
+      - logger.log: "Going to deep sleep (${sleep_duration})..."
       - deep_sleep.enter: deep_sleep_control
     on_error:
       - logger.log: "Failed to download image"
