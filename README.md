@@ -80,8 +80,7 @@ wifi_password: "your_wifi_password"
 
 Once the firmware is installed, every time the device is started (cold boot) it will show a maintenance icon.
 
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="128" fill="currentColor" style="vertical-align: middle;"><title>application-code</title><path d="M11 16H9V15H8V11H9V10H11V12H10V14H11M15 16H13V14H14V12H13V10H15V11H16V15H15M19 20H3V19H2V3H3V2H19V3H20V19H19M18 6V4H4V6M18 18V8H4V18Z" /></svg>
-
+![Application Code icon](docs/application-code.png)
 
 On the first boot:
 
